@@ -39,6 +39,50 @@ impl LevelColors for Level {
     }
 }
 
+// ── Theme-aware row colors ────────────────────────────────────────────────────
+
+struct RowColors {
+    even:      Color32,
+    odd:       Color32,
+    expanded:  Color32,
+    active:    Color32,
+    text:      Color32,
+    text_dim:  Color32,
+    detail_bg: Color32,
+    exc_bg:    Color32,
+    exc_text:  Color32,
+}
+
+impl RowColors {
+    fn from_visuals(v: &egui::Visuals) -> Self {
+        if v.dark_mode {
+            Self {
+                even:      Color32::from_rgb(26, 26, 30),
+                odd:       Color32::from_rgb(20, 20, 24),
+                expanded:  Color32::from_rgb(30, 45, 80),
+                active:    Color32::from_rgb(35, 55, 95),
+                text:      Color32::WHITE,
+                text_dim:  Color32::from_gray(110),
+                detail_bg: Color32::from_rgb(28, 30, 38),
+                exc_bg:    Color32::from_rgb(40, 15, 15),
+                exc_text:  Color32::from_rgb(255, 180, 180),
+            }
+        } else {
+            Self {
+                even:      Color32::from_rgb(245, 245, 248),
+                odd:       Color32::from_rgb(235, 235, 240),
+                expanded:  Color32::from_rgb(200, 215, 245),
+                active:    Color32::from_rgb(210, 225, 250),
+                text:      Color32::from_gray(20),
+                text_dim:  Color32::from_gray(100),
+                detail_bg: Color32::from_rgb(230, 232, 240),
+                exc_bg:    Color32::from_rgb(255, 230, 230),
+                exc_text:  Color32::from_rgb(120, 20, 20),
+            }
+        }
+    }
+}
+
 // ── Widget helpers ────────────────────────────────────────────────────────────
 
 pub fn badge(ui: &mut egui::Ui, text: &str, fg: Color32, bg: Color32) {
@@ -81,22 +125,22 @@ pub enum DetailAction {
 }
 
 pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) -> Option<DetailAction> {
-    let bg = Color32::from_rgb(28, 30, 38);
+    let rc = RowColors::from_visuals(ui.visuals());
     let mut action: Option<DetailAction> = None;
     egui::Frame::none()
-        .fill(bg)
+        .fill(rc.detail_bg)
         .inner_margin(egui::Margin::symmetric(16.0, 10.0))
         .show(ui, |ui| {
             if !record.exception.is_empty() {
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(40, 15, 15))
+                    .fill(rc.exc_bg)
                     .stroke(egui::Stroke::new(3.0, Color32::from_rgb(220, 53, 69)))
                     .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                     .rounding(4.0)
                     .show(ui, |ui| {
                         ui.label(RichText::new("Exception").color(Color32::from_rgb(220, 53, 69)).strong().size(15.0));
                         ui.add_space(4.0);
-                        ui.label(mono(&record.exception).color(Color32::from_rgb(255, 180, 180)));
+                        ui.label(mono(&record.exception).color(rc.exc_text));
                     });
                 ui.add_space(8.0);
             }
@@ -494,6 +538,7 @@ impl App {
 
         let page_indices: Vec<usize> = self.page_records().to_vec();
         let expanded = self.expanded;
+        let rc = RowColors::from_visuals(ui.visuals());
 
         ScrollArea::vertical().id_salt("log_scroll").auto_shrink([false; 2]).show(ui, |ui| {
             for (row_i, &rec_idx) in page_indices.iter().enumerate() {
@@ -501,11 +546,11 @@ impl App {
                 let is_expanded = expanded == Some(rec_idx);
 
                 let row_bg = if is_expanded {
-                    Color32::from_rgb(30, 45, 80)
+                    rc.expanded
                 } else if row_i % 2 == 0 {
-                    Color32::from_rgb(26, 26, 30)
+                    rc.even
                 } else {
-                    Color32::from_rgb(20, 20, 24)
+                    rc.odd
                 };
 
                 let row_resp = egui::Frame::none()
@@ -515,7 +560,7 @@ impl App {
                         ui.set_min_width(avail_w);
                         ui.horizontal_top(|ui| {
                             ui.add_sized([ts_w, 20.0], egui::Label::new(
-                                mono(&record.timestamp_local).color(Color32::from_gray(180))
+                                mono(&record.timestamp_local).color(rc.text_dim)
                             ));
                             ui.scope(|ui| {
                                 ui.set_width(lvl_w);
@@ -529,17 +574,17 @@ impl App {
                                             let segs = template_segments(&record.template, obj);
                                             for (text, is_dynamic) in &segs {
                                                 let color = if *is_dynamic {
-                                                    Color32::WHITE
+                                                    rc.text
                                                 } else {
-                                                    Color32::from_gray(110)
+                                                    rc.text_dim
                                                 };
                                                 ui.label(RichText::new(text).size(14.0).color(color));
                                             }
                                         } else {
-                                            ui.label(RichText::new(&record.message).size(14.0).color(Color32::WHITE));
+                                            ui.label(RichText::new(&record.message).size(14.0).color(rc.text));
                                         }
                                     } else {
-                                        ui.label(RichText::new(&record.message).size(14.0).color(Color32::WHITE));
+                                        ui.label(RichText::new(&record.message).size(14.0).color(rc.text));
                                     }
                                 });
                             });
@@ -597,6 +642,7 @@ impl App {
         let search = self.template_search.to_lowercase();
         let summary = self.template_summary.clone();
         let active_filter = self.template_filter.clone();
+        let rc = RowColors::from_visuals(ui.visuals());
 
         ScrollArea::vertical().id_salt("tmpl_scroll").auto_shrink([false; 2]).show(ui, |ui| {
             for (row_i, ts) in summary.iter()
@@ -604,9 +650,9 @@ impl App {
                 .enumerate()
             {
                 let is_active = active_filter.as_deref() == Some(&ts.template);
-                let bg = if is_active { Color32::from_rgb(35, 55, 95) }
-                         else if row_i % 2 == 0 { Color32::from_rgb(26, 26, 30) }
-                         else { Color32::from_rgb(20, 20, 24) };
+                let bg = if is_active { rc.active }
+                         else if row_i % 2 == 0 { rc.even }
+                         else { rc.odd };
 
                 let resp = egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(6.0, 5.0)).show(ui, |ui| {
                     ui.horizontal_top(|ui| {
@@ -614,7 +660,7 @@ impl App {
                             RichText::new(ts.count.to_string()).size(14.0).strong().monospace()
                         ));
                         ui.scope(|ui| { ui.set_width(110.0); badge(ui, ts.level.label(), ts.level.color(), ts.level.bg_color()); });
-                        ui.add(egui::Label::new(RichText::new(&ts.template).size(14.0).color(Color32::from_gray(210))).wrap());
+                        ui.add(egui::Label::new(RichText::new(&ts.template).size(14.0).color(rc.text_dim)).wrap());
                     });
                 });
 

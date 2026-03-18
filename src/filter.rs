@@ -33,7 +33,7 @@ impl PropertyFilter {
                 let _ = context.set_value("@m".into(), json_to_evalexpr(v));
                 continue;
             }
-            if k.starts_with('@') {
+            if k == "@t" || k == "@l" || k == "@mt" {
                 continue;
             }
             field_names.insert(k.clone());
