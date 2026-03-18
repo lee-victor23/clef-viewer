@@ -134,6 +134,20 @@ pub struct TemplateSummary {
 #[derive(PartialEq)]
 pub enum Tab { Logs, Templates }
 
+// ── SortOrder ────────────────────────────────────────────────────────────────
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum SortOrder { Asc, Desc }
+
+impl SortOrder {
+    pub fn toggle(self) -> Self {
+        match self { SortOrder::Asc => SortOrder::Desc, SortOrder::Desc => SortOrder::Asc }
+    }
+    pub fn label(self) -> &'static str {
+        match self { SortOrder::Asc => "Oldest first", SortOrder::Desc => "Newest first" }
+    }
+}
+
 // ── LoadState ────────────────────────────────────────────────────────────────
 
 pub enum LoadState {

@@ -5,7 +5,7 @@ use chrono::Local;
 
 use crate::filter::PropertyFilter;
 use crate::parsing::{build_template_summary, load_file};
-use crate::types::{DateFilter, LevelStats, LoadState, LogRecord, Tab, TemplateSummary};
+use crate::types::{DateFilter, LevelStats, LoadState, LogRecord, SortOrder, Tab, TemplateSummary};
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,7 @@ pub struct App {
     pub property_filter:  String,
     pub compiled_pf:      Option<PropertyFilter>,
     pub pf_error:         Option<String>,
+    pub sort_order:       SortOrder,
     pub load_rx:          Option<mpsc::Receiver<Vec<LogRecord>>>,
     pub load_state:       LoadState,
     pub pending_path:     Option<PathBuf>,
@@ -45,6 +46,7 @@ impl Default for App {
             page: 0, page_size: 100, tab: Tab::Logs,
             template_summary: vec![], template_search: String::new(), template_filter: None,
             property_filter: String::new(), compiled_pf: None, pf_error: None,
+            sort_order: SortOrder::Asc,
             load_rx: None, load_state: LoadState::Idle, pending_path: None,
         }
     }
@@ -126,6 +128,7 @@ impl App {
         self.property_filter.clear();
         self.compiled_pf = None;
         self.pf_error = None;
+        self.sort_order = SortOrder::Asc;
     }
 
     pub fn apply_filter(&mut self) {
@@ -155,6 +158,9 @@ impl App {
             true
         }).map(|(i, _)| i).collect();
 
+        if self.sort_order == SortOrder::Desc {
+            self.filtered.reverse();
+        }
         self.stats = LevelStats::from_filtered(&self.records, &self.filtered);
         self.template_summary = build_template_summary(&self.records, &self.filtered);
         let pages = self.total_pages();

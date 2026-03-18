@@ -227,6 +227,12 @@ impl eframe::App for App {
                 if ui.selectable_label(self.tab == Tab::Logs,      RichText::new("Logs").size(14.0)).clicked() { self.tab = Tab::Logs; }
                 if ui.selectable_label(self.tab == Tab::Templates,  RichText::new("Message Templates").size(14.0)).clicked() { self.tab = Tab::Templates; }
                 ui.separator();
+                if ui.button(RichText::new(self.sort_order.label()).size(13.0)).clicked() {
+                    self.sort_order = self.sort_order.toggle();
+                    self.page = 0;
+                    self.apply_filter();
+                }
+                ui.separator();
                 ui.label(body("Search:"));
                 let r = ui.add(TextEdit::singleline(&mut self.search).desired_width(300.0).hint_text("Search logs…").font(egui::TextStyle::Body));
                 if r.changed() { self.page = 0; self.apply_filter(); }
