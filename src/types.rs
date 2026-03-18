@@ -129,3 +129,10 @@ pub struct TemplateSummary {
 
 #[derive(PartialEq)]
 pub enum Tab { Logs, Templates }
+
+// ── LoadState ────────────────────────────────────────────────────────────────
+
+pub enum LoadState {
+    Idle,
+    Loading,
+}

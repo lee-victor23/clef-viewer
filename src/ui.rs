@@ -4,7 +4,7 @@ use egui_extras::DatePickerButton;
 
 use crate::app::App;
 use crate::parsing::template_segments;
-use crate::types::{DateFilter, Level, LogRecord, Tab, ALL_LEVELS};
+use crate::types::{DateFilter, Level, LoadState, LogRecord, Tab, ALL_LEVELS};
 
 // ── Level colours (kept out of types.rs to avoid egui dep there) ─────────────
 
@@ -192,11 +192,37 @@ fn build_detail_action(key: &str, value: &serde_json::Value) -> DetailAction {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
+        // ── Poll background file load ────────────────────────────────────────
+        self.poll_load();
+        if matches!(self.load_state, LoadState::Loading) {
+            ctx.request_repaint();
+        }
+
+        // ── Ctrl+W: close current file ───────────────────────────────────────
+        if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::W)) {
+            self.close_file();
+        }
+
+        // ── Drag-and-drop: load file when none is loaded ─────────────────────
+        if self.records.is_empty() && !matches!(self.load_state, LoadState::Loading) {
+            ctx.input(|i| {
+                for f in &i.raw.dropped_files {
+                    if let Some(path) = &f.path {
+                        self.load(path.clone());
+                        break;
+                    }
+                }
+            });
+        }
+
         // ── Toolbar ───────────────────────────────────────────────────────────
         egui::TopBottomPanel::top("toolbar").exact_height(136.0).show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("  Open file…  ").size(14.0)).clicked() { self.open_file(); }
+                let is_loading = matches!(self.load_state, LoadState::Loading);
+                if ui.add_enabled(!is_loading, egui::Button::new(RichText::new(if is_loading { "  Loading…  " } else { "  Open file…  " }).size(14.0))).clicked() {
+                    self.open_file();
+                }
                 ui.separator();
                 if ui.selectable_label(self.tab == Tab::Logs,      RichText::new("Logs").size(14.0)).clicked() { self.tab = Tab::Logs; }
                 if ui.selectable_label(self.tab == Tab::Templates,  RichText::new("Message Templates").size(14.0)).clicked() { self.tab = Tab::Templates; }
@@ -375,7 +401,7 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.records.is_empty() {
                 ui.centered_and_justified(|ui| {
-                    ui.label(RichText::new("Open a .clef file to view logs").size(20.0).color(Color32::from_gray(80)));
+                    ui.label(RichText::new("Open or drag a .clef file to view logs").size(20.0).color(Color32::from_gray(80)));
                 });
                 return;
             }

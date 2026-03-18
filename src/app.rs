@@ -1,10 +1,11 @@
 use std::path::PathBuf;
+use std::sync::mpsc;
 
 use chrono::Local;
 
 use crate::filter::PropertyFilter;
 use crate::parsing::{build_template_summary, load_file};
-use crate::types::{DateFilter, LevelStats, LogRecord, Tab, TemplateSummary};
+use crate::types::{DateFilter, LevelStats, LoadState, LogRecord, Tab, TemplateSummary};
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,9 @@ pub struct App {
     pub property_filter:  String,
     pub compiled_pf:      Option<PropertyFilter>,
     pub pf_error:         Option<String>,
+    pub load_rx:          Option<mpsc::Receiver<Vec<LogRecord>>>,
+    pub load_state:       LoadState,
+    pub pending_path:     Option<PathBuf>,
 }
 
 impl Default for App {
@@ -41,6 +45,7 @@ impl Default for App {
             page: 0, page_size: 100, tab: Tab::Logs,
             template_summary: vec![], template_search: String::new(), template_filter: None,
             property_filter: String::new(), compiled_pf: None, pf_error: None,
+            load_rx: None, load_state: LoadState::Idle, pending_path: None,
         }
     }
 }
@@ -57,17 +62,70 @@ impl App {
     }
 
     pub fn load(&mut self, path: PathBuf) {
-        self.records = load_file(&path);
-        self.expanded = None; self.page = 0; self.template_filter = None;
-        if let Some(dt) = self.records.iter().find_map(|r| r.dt_utc) {
-            self.time_from = DateFilter::from_local_dt(dt.with_timezone(&Local));
+        let (tx, rx) = mpsc::channel();
+        let path_clone = path.clone();
+        std::thread::spawn(move || {
+            let records = load_file(&path_clone);
+            let _ = tx.send(records);
+        });
+        self.load_rx = Some(rx);
+        self.load_state = LoadState::Loading;
+        self.pending_path = Some(path);
+        self.status = "Loading…".into();
+    }
+
+    pub fn poll_load(&mut self) {
+        let rx = match self.load_rx.as_ref() {
+            Some(rx) => rx,
+            None => return,
+        };
+        match rx.try_recv() {
+            Ok(records) => {
+                self.records = records;
+                self.expanded = None;
+                self.page = 0;
+                self.template_filter = None;
+                if let Some(dt) = self.records.iter().find_map(|r| r.dt_utc) {
+                    self.time_from = DateFilter::from_local_dt(dt.with_timezone(&Local));
+                }
+                if let Some(dt) = self.records.iter().rev().find_map(|r| r.dt_utc) {
+                    self.time_to = DateFilter::from_local_dt(dt.with_timezone(&Local));
+                }
+                self.file_path = self.pending_path.take();
+                self.status = format!("Loaded {} records", self.records.len());
+                self.load_rx = None;
+                self.load_state = LoadState::Idle;
+                self.apply_filter();
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.status = "Load failed.".into();
+                self.load_rx = None;
+                self.load_state = LoadState::Idle;
+                self.pending_path = None;
+            }
         }
-        if let Some(dt) = self.records.iter().rev().find_map(|r| r.dt_utc) {
-            self.time_to = DateFilter::from_local_dt(dt.with_timezone(&Local));
-        }
-        self.file_path = Some(path);
-        self.status = format!("Loaded {} records", self.records.len());
-        self.apply_filter();
+    }
+
+    pub fn close_file(&mut self) {
+        self.records.clear();
+        self.filtered.clear();
+        self.search.clear();
+        self.level_filters = [true; 7];
+        self.time_from = DateFilter::empty();
+        self.time_to = DateFilter::empty();
+        self.expanded = None;
+        self.file_path = None;
+        self.status = "No file loaded.".into();
+        self.stats = LevelStats { counts: [0; 7] };
+        self.page = 0;
+        self.tab = Tab::Logs;
+        self.template_summary.clear();
+        self.template_search.clear();
+        self.template_filter = None;
+        self.property_filter.clear();
+        self.compiled_pf = None;
+        self.pf_error = None;
     }
 
     pub fn apply_filter(&mut self) {
