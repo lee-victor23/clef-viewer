@@ -41,7 +41,7 @@ impl Default for App {
             level_filters: [true; 7],
             time_from: DateFilter::empty(), time_to: DateFilter::empty(),
             expanded: None, file_path: None, status: "No file loaded.".into(),
-            stats: LevelStats { counts: [0; 7] },
+            stats: LevelStats { counts: [0; 7], exception_count: 0 },
             page: 0, page_size: 100, tab: Tab::Logs,
             template_summary: vec![], template_search: String::new(), template_filter: None,
             property_filter: String::new(), compiled_pf: None, pf_error: None,
@@ -117,7 +117,7 @@ impl App {
         self.expanded = None;
         self.file_path = None;
         self.status = "No file loaded.".into();
-        self.stats = LevelStats { counts: [0; 7] };
+        self.stats = LevelStats { counts: [0; 7], exception_count: 0 };
         self.page = 0;
         self.tab = Tab::Logs;
         self.template_summary.clear();

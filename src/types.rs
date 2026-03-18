@@ -104,13 +104,17 @@ pub struct LogRecord {
 
 // ── LevelStats ────────────────────────────────────────────────────────────────
 
-pub struct LevelStats { pub counts: [usize; 7] }
+pub struct LevelStats { pub counts: [usize; 7], pub exception_count: usize }
 
 impl LevelStats {
     pub fn from_filtered(records: &[LogRecord], filtered: &[usize]) -> Self {
         let mut counts = [0usize; 7];
-        for &i in filtered { counts[records[i].level as usize] += 1; }
-        LevelStats { counts }
+        let mut exception_count = 0usize;
+        for &i in filtered {
+            counts[records[i].level as usize] += 1;
+            if !records[i].exception.is_empty() { exception_count += 1; }
+        }
+        LevelStats { counts, exception_count }
     }
     pub fn total(&self) -> usize { self.counts.iter().sum() }
     pub fn count(&self, l: Level) -> usize { self.counts[l as usize] }

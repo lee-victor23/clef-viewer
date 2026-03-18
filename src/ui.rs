@@ -301,6 +301,8 @@ impl eframe::App for App {
         // ── Stats sidebar ─────────────────────────────────────────────────────
         egui::SidePanel::right("stats").resizable(true).default_width(280.0).width_range(180.0..=600.0).show(ctx, |ui| {
             ui.add_space(10.0);
+
+            // ── Error/Fatal level card ───────────────────────────────────
             let errs  = self.stats.count(Level::Error);
             let fatal = self.stats.count(Level::Fatal);
             let total_ef = errs + fatal;
@@ -318,6 +320,31 @@ impl eframe::App for App {
                 });
             });
             if total_ef > 0 && card.response.interact(egui::Sense::click()).clicked() {
+                // Disable all levels except Error and Fatal
+                self.level_filters = [false; 7];
+                self.level_filters[Level::Error as usize] = true;
+                self.level_filters[Level::Fatal as usize] = true;
+                self.page = 0;
+                self.apply_filter();
+            }
+
+            ui.add_space(6.0);
+
+            // ── Exceptions card ──────────────────────────────────────────
+            let exc_count = self.stats.exception_count;
+            let (exc_bg, exc_fg) = if exc_count > 0 { (Color32::from_rgb(140, 40, 80), Color32::WHITE) }
+                                   else              { (Color32::from_rgb( 35, 110, 55), Color32::WHITE) };
+            let exc_card = egui::Frame::none().fill(exc_bg).rounding(8.0).inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.vertical_centered(|ui| {
+                    ui.label(RichText::new("Exceptions").color(exc_fg).size(13.0));
+                    ui.label(RichText::new(exc_count.to_string()).color(exc_fg).size(36.0).strong());
+                    if exc_count > 0 {
+                        ui.label(RichText::new("click to filter").color(exc_fg).size(10.0));
+                    }
+                });
+            });
+            if exc_count > 0 && exc_card.response.interact(egui::Sense::click()).clicked() {
                 self.property_filter = "Has(\"Exception\")".into();
                 self.recompile_property_filter();
                 self.page = 0;

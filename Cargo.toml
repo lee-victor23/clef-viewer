@@ -16,6 +16,9 @@ rfd = "0.15"
 chrono = "0.4"
 evalexpr = "11"
 
+[build-dependencies]
+winres = "0.1"
+
 [profile.release]
 opt-level = 3
 lto = true
