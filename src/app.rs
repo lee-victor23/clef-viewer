@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -37,6 +38,9 @@ pub struct App {
     pub sidebar_open:     bool,
     pub search_dirty:     Option<Instant>,
     pub pf_dirty:         Option<Instant>,
+    pub selected_row:     Option<usize>,
+    pub scroll_to_selected: bool,
+    pub focus_search:     bool,
 }
 
 impl Default for App {
@@ -55,6 +59,9 @@ impl Default for App {
             sidebar_open: true,
             search_dirty: None,
             pf_dirty: None,
+            selected_row: None,
+            scroll_to_selected: false,
+            focus_search: false,
         }
     }
 }
@@ -136,6 +143,9 @@ impl App {
         self.compiled_pf = None;
         self.pf_error = None;
         self.sort_order = SortOrder::Asc;
+        self.selected_row = None;
+        self.scroll_to_selected = false;
+        self.focus_search = false;
     }
 
     pub fn apply_filter(&mut self) {
@@ -216,5 +226,34 @@ impl App {
         let s = (self.page * self.page_size).min(len);
         let e = (s + self.page_size).min(len);
         &self.filtered[s..e]
+    }
+
+    pub fn export_filtered(&mut self) {
+        let path = rfd::FileDialog::new()
+            .add_filter("CLEF / JSON lines", &["clef", "json", "log"])
+            .add_filter("All files", &["*"])
+            .set_file_name("filtered.clef")
+            .save_file();
+        let path = match path {
+            Some(p) => p,
+            None => return,
+        };
+        match std::fs::File::create(&path) {
+            Ok(mut f) => {
+                let mut count = 0usize;
+                for &i in &self.filtered {
+                    let line = self.records[i].raw.to_string();
+                    if writeln!(f, "{}", line).is_err() {
+                        self.status = format!("Write error after {} lines", count);
+                        return;
+                    }
+                    count += 1;
+                }
+                self.status = format!("Exported {} records to {}", count, path.display());
+            }
+            Err(e) => {
+                self.status = format!("Export failed: {}", e);
+            }
+        }
     }
 }

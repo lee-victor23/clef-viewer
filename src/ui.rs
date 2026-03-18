@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{Color32, FontId, RichText, ScrollArea, TextEdit, Vec2};
+use egui::{Align, Color32, FontId, RichText, ScrollArea, TextEdit, Vec2};
 use egui_extras::DatePickerButton;
 
 use crate::app::App;
@@ -46,6 +46,7 @@ struct RowColors {
     odd:       Color32,
     expanded:  Color32,
     active:    Color32,
+    selected:  Color32,
     text:      Color32,
     text_dim:  Color32,
     detail_bg: Color32,
@@ -61,6 +62,7 @@ impl RowColors {
                 odd:       Color32::from_rgb(16, 16, 20),
                 expanded:  Color32::from_rgb(30, 45, 80),
                 active:    Color32::from_rgb(35, 55, 95),
+                selected:  Color32::from_rgb(25, 55, 35),
                 text:      Color32::WHITE,
                 text_dim:  Color32::from_gray(110),
                 detail_bg: Color32::from_rgb(28, 30, 38),
@@ -73,6 +75,7 @@ impl RowColors {
                 odd:       Color32::from_rgb(228, 228, 234),
                 expanded:  Color32::from_rgb(200, 215, 245),
                 active:    Color32::from_rgb(210, 225, 250),
+                selected:  Color32::from_rgb(210, 240, 218),
                 text:      Color32::from_gray(20),
                 text_dim:  Color32::from_gray(100),
                 detail_bg: Color32::from_rgb(230, 232, 240),
@@ -247,6 +250,74 @@ impl eframe::App for App {
             self.close_file();
         }
 
+        // ── Ctrl+F: focus search ─────────────────────────────────────────
+        if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::F)) {
+            self.focus_search = true;
+        }
+
+        // ── Keyboard navigation (only when no text widget has focus) ─────
+        if self.tab == Tab::Logs && !self.records.is_empty() {
+            let any_text_focused = ctx.memory(|m| m.focused().is_some())
+                && !ctx.input(|i| {
+                    i.key_pressed(egui::Key::ArrowUp)
+                    || i.key_pressed(egui::Key::ArrowDown)
+                    || i.key_pressed(egui::Key::Enter)
+                    || i.key_pressed(egui::Key::Escape)
+                    || i.key_pressed(egui::Key::PageUp)
+                    || i.key_pressed(egui::Key::PageDown)
+                });
+            let _ = any_text_focused; // suppress warning
+
+            let page_len = self.page_records().len();
+            if page_len > 0 {
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                    self.selected_row = Some(match self.selected_row {
+                        None => 0,
+                        Some(r) => if r + 1 >= page_len { 0 } else { r + 1 },
+                    });
+                    self.scroll_to_selected = true;
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                    self.selected_row = Some(match self.selected_row {
+                        None => page_len - 1,
+                        Some(0) => page_len - 1,
+                        Some(r) => r - 1,
+                    });
+                    self.scroll_to_selected = true;
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if let Some(row_i) = self.selected_row {
+                        let page = self.page_records().to_vec();
+                        if let Some(&rec_idx) = page.get(row_i) {
+                            self.expanded = if self.expanded == Some(rec_idx) { None } else { Some(rec_idx) };
+                        }
+                    }
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    if self.expanded.is_some() {
+                        self.expanded = None;
+                    } else {
+                        self.selected_row = None;
+                    }
+                }
+                let total_pages = self.total_pages();
+                if ctx.input(|i| i.key_pressed(egui::Key::PageDown)) {
+                    if self.page + 1 < total_pages {
+                        self.page += 1;
+                        self.selected_row = None;
+                        self.expanded = None;
+                    }
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::PageUp)) {
+                    if self.page > 0 {
+                        self.page -= 1;
+                        self.selected_row = None;
+                        self.expanded = None;
+                    }
+                }
+            }
+        }
+
         // ── Drag-and-drop: load file when none is loaded ─────────────────────
         if self.records.is_empty() && !matches!(self.load_state, LoadState::Loading) {
             ctx.input(|i| {
@@ -273,6 +344,9 @@ impl eframe::App for App {
                 if ui.add_enabled(!is_loading, egui::Button::new(RichText::new(if is_loading { "  Loading…  " } else { "  Open file…  " }).size(14.0))).clicked() {
                     self.open_file();
                 }
+                if ui.add_enabled(!self.filtered.is_empty(), egui::Button::new(RichText::new("Export…").size(14.0))).clicked() {
+                    self.export_filtered();
+                }
                 ui.separator();
                 if ui.selectable_label(self.tab == Tab::Logs,      RichText::new("Logs").size(14.0)).clicked() { self.tab = Tab::Logs; }
                 if ui.selectable_label(self.tab == Tab::Templates,  RichText::new("Message Templates").size(14.0)).clicked() { self.tab = Tab::Templates; }
@@ -285,6 +359,7 @@ impl eframe::App for App {
                 ui.separator();
                 ui.label(body("Search:"));
                 let r = ui.add(TextEdit::singleline(&mut self.search).desired_width(300.0).hint_text("Search logs…").font(egui::TextStyle::Body));
+                if self.focus_search { r.request_focus(); self.focus_search = false; }
                 if r.changed() { self.search_dirty = Some(std::time::Instant::now()); }
                 if ui.button("Clear").clicked() { self.search.clear(); self.search_dirty = None; self.template_filter = None; self.page = 0; self.apply_filter(); }
 
@@ -526,23 +601,23 @@ impl App {
             ui.label(body(format!("Page {} / {}  ({} records)", self.page + 1, total_pages, self.filtered.len())));
             ui.add_space(6.0);
             if ui.add_enabled(self.page > 0, egui::Button::new(body("< Prev"))).clicked() {
-                self.page -= 1; self.expanded = None;
+                self.page -= 1; self.expanded = None; self.selected_row = None;
             }
             let ws = self.page.saturating_sub(4);
             let we = (ws + 10).min(total_pages);
             for p in ws..we {
                 let active = p == self.page;
                 if ui.selectable_label(active, body((p + 1).to_string())).clicked() && !active {
-                    self.page = p; self.expanded = None;
+                    self.page = p; self.expanded = None; self.selected_row = None;
                 }
             }
             if ui.add_enabled(self.page + 1 < total_pages, egui::Button::new(body("Next >"))).clicked() {
-                self.page += 1; self.expanded = None;
+                self.page += 1; self.expanded = None; self.selected_row = None;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 for &sz in &[50usize, 100, 200, 500] {
                     if ui.selectable_label(self.page_size == sz, body(sz.to_string())).clicked() {
-                        self.page_size = sz; self.page = 0; self.expanded = None;
+                        self.page_size = sz; self.page = 0; self.expanded = None; self.selected_row = None;
                     }
                 }
                 ui.label(body("Per page:"));
@@ -564,15 +639,19 @@ impl App {
 
         let page_indices: Vec<usize> = self.page_records().to_vec();
         let expanded = self.expanded;
+        let selected_row = self.selected_row;
         let rc = RowColors::from_visuals(ui.visuals());
 
         ScrollArea::vertical().id_salt("log_scroll").auto_shrink([false; 2]).show(ui, |ui| {
             for (row_i, &rec_idx) in page_indices.iter().enumerate() {
                 let record = &self.records[rec_idx];
                 let is_expanded = expanded == Some(rec_idx);
+                let is_selected = selected_row == Some(row_i);
 
                 let row_bg = if is_expanded {
                     rc.expanded
+                } else if is_selected {
+                    rc.selected
                 } else if row_i % 2 == 0 {
                     rc.even
                 } else {
@@ -617,7 +696,13 @@ impl App {
                         });
                     });
 
+                if is_selected && self.scroll_to_selected {
+                    row_resp.response.scroll_to_me(Some(Align::Center));
+                    self.scroll_to_selected = false;
+                }
+
                 if row_resp.response.interact(egui::Sense::click()).clicked() {
+                    self.selected_row = Some(row_i);
                     self.expanded = if is_expanded { None } else { Some(rec_idx) };
                 }
 
