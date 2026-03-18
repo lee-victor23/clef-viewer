@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::time::Instant;
 
 use chrono::Local;
 
@@ -33,6 +34,9 @@ pub struct App {
     pub load_rx:          Option<mpsc::Receiver<Vec<LogRecord>>>,
     pub load_state:       LoadState,
     pub pending_path:     Option<PathBuf>,
+    pub sidebar_open:     bool,
+    pub search_dirty:     Option<Instant>,
+    pub pf_dirty:         Option<Instant>,
 }
 
 impl Default for App {
@@ -48,6 +52,9 @@ impl Default for App {
             property_filter: String::new(), compiled_pf: None, pf_error: None,
             sort_order: SortOrder::Asc,
             load_rx: None, load_state: LoadState::Idle, pending_path: None,
+            sidebar_open: true,
+            search_dirty: None,
+            pf_dirty: None,
         }
     }
 }
@@ -176,6 +183,25 @@ impl App {
             match PropertyFilter::compile(expr) {
                 Ok(pf) => { self.compiled_pf = Some(pf); self.pf_error = None; }
                 Err(e) => { self.compiled_pf = None; self.pf_error = Some(e.to_string()); }
+            }
+        }
+    }
+
+    pub fn flush_debounce(&mut self) {
+        const DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+        if let Some(t) = self.search_dirty {
+            if t.elapsed() >= DELAY {
+                self.search_dirty = None;
+                self.page = 0;
+                self.apply_filter();
+            }
+        }
+        if let Some(t) = self.pf_dirty {
+            if t.elapsed() >= DELAY {
+                self.pf_dirty = None;
+                self.recompile_property_filter();
+                self.page = 0;
+                self.apply_filter();
             }
         }
     }

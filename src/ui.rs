@@ -259,6 +259,12 @@ impl eframe::App for App {
             });
         }
 
+        // ── Debounced search / property filter ────────────────────────────────
+        if self.search_dirty.is_some() || self.pf_dirty.is_some() {
+            self.flush_debounce();
+            ctx.request_repaint();
+        }
+
         // ── Toolbar ───────────────────────────────────────────────────────────
         egui::TopBottomPanel::top("toolbar").exact_height(136.0).show(ctx, |ui| {
             ui.add_space(6.0);
@@ -279,8 +285,8 @@ impl eframe::App for App {
                 ui.separator();
                 ui.label(body("Search:"));
                 let r = ui.add(TextEdit::singleline(&mut self.search).desired_width(300.0).hint_text("Search logs…").font(egui::TextStyle::Body));
-                if r.changed() { self.page = 0; self.apply_filter(); }
-                if ui.button("Clear").clicked() { self.search.clear(); self.template_filter = None; self.page = 0; self.apply_filter(); }
+                if r.changed() { self.search_dirty = Some(std::time::Instant::now()); }
+                if ui.button("Clear").clicked() { self.search.clear(); self.search_dirty = None; self.template_filter = None; self.page = 0; self.apply_filter(); }
 
                 if let Some(ref tf) = self.template_filter.clone() {
                     ui.separator();
@@ -290,6 +296,10 @@ impl eframe::App for App {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let sidebar_label = if self.sidebar_open { "Stats ▶" } else { "◀ Stats" };
+                    if ui.button(RichText::new(sidebar_label).size(13.0)).clicked() {
+                        self.sidebar_open = !self.sidebar_open;
+                    }
                     ui.label(small_gray(&self.status));
                     ui.label(small_gray(format!("{} / {} |", self.filtered.len(), self.records.len())));
                 });
@@ -329,15 +339,14 @@ impl eframe::App for App {
                         .font(egui::TextStyle::Body),
                 );
                 if pf_resp.changed() {
-                    self.recompile_property_filter();
-                    self.page = 0;
-                    self.apply_filter();
+                    self.pf_dirty = Some(std::time::Instant::now());
                 }
                 if !self.property_filter.is_empty() {
                     if ui.button("Clear").clicked() {
                         self.property_filter.clear();
                         self.compiled_pf = None;
                         self.pf_error = None;
+                        self.pf_dirty = None;
                         self.page = 0;
                         self.apply_filter();
                     }
@@ -349,6 +358,7 @@ impl eframe::App for App {
         });
 
         // ── Stats sidebar ─────────────────────────────────────────────────────
+        if self.sidebar_open {
         egui::SidePanel::right("stats").resizable(true).default_width(280.0).width_range(180.0..=600.0).show(ctx, |ui| {
             ui.add_space(10.0);
 
@@ -488,6 +498,7 @@ impl eframe::App for App {
                 }
             });
         });
+        } // sidebar_open
 
         // ── Central ───────────────────────────────────────────────────────────
         egui::CentralPanel::default().show(ctx, |ui| {
