@@ -57,8 +57,8 @@ impl RowColors {
     fn from_visuals(v: &egui::Visuals) -> Self {
         if v.dark_mode {
             Self {
-                even:      Color32::from_rgb(26, 26, 30),
-                odd:       Color32::from_rgb(20, 20, 24),
+                even:      Color32::from_rgb(30, 30, 34),
+                odd:       Color32::from_rgb(16, 16, 20),
                 expanded:  Color32::from_rgb(30, 45, 80),
                 active:    Color32::from_rgb(35, 55, 95),
                 text:      Color32::WHITE,
@@ -69,8 +69,8 @@ impl RowColors {
             }
         } else {
             Self {
-                even:      Color32::from_rgb(245, 245, 248),
-                odd:       Color32::from_rgb(235, 235, 240),
+                even:      Color32::from_rgb(248, 248, 250),
+                odd:       Color32::from_rgb(228, 228, 234),
                 expanded:  Color32::from_rgb(200, 215, 245),
                 active:    Color32::from_rgb(210, 225, 250),
                 text:      Color32::from_gray(20),
@@ -449,8 +449,9 @@ impl eframe::App for App {
 
             let summary = self.template_summary.clone();
             let active_tf = self.template_filter.clone();
+            let rc = RowColors::from_visuals(ui.visuals());
             ScrollArea::vertical().id_salt("sidebar_templates").auto_shrink([false; 2]).show(ui, |ui| {
-                for ts in &summary {
+                for (row_i, ts) in summary.iter().enumerate() {
                     let is_active = active_tf.as_deref() == Some(&ts.template);
                     let short: String = ts.template.chars().take(40).collect();
                     let label = if ts.template.len() > 40 {
@@ -458,10 +459,24 @@ impl eframe::App for App {
                     } else {
                         format!("{} ({})", ts.template, ts.count)
                     };
+                    let row_bg = if is_active {
+                        rc.active
+                    } else if row_i % 2 == 0 {
+                        rc.even
+                    } else {
+                        rc.odd
+                    };
                     let text = RichText::new(label).size(12.0).color(
                         if is_active { Color32::from_rgb(255, 200, 80) } else { ts.level.color() }
                     );
-                    if ui.add(egui::Label::new(text).wrap().sense(egui::Sense::click())).clicked() {
+                    let resp = egui::Frame::none()
+                        .fill(row_bg)
+                        .inner_margin(egui::Margin::symmetric(4.0, 3.0))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.add(egui::Label::new(text).wrap().sense(egui::Sense::click()))
+                        });
+                    if resp.inner.clicked() {
                         if is_active {
                             self.template_filter = None;
                         } else {
@@ -655,6 +670,7 @@ impl App {
                          else { rc.odd };
 
                 let resp = egui::Frame::none().fill(bg).inner_margin(egui::Margin::symmetric(6.0, 5.0)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     ui.horizontal_top(|ui| {
                         ui.add_sized([70.0, 20.0], egui::Label::new(
                             RichText::new(ts.count.to_string()).size(14.0).strong().monospace()
