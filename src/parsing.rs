@@ -45,7 +45,31 @@ pub fn value_to_display(v: &Value) -> String {
         Value::Null      => "null".into(),
         Value::Bool(b)   => b.to_string(),
         Value::Number(n) => n.to_string(),
-        other            => other.to_string(),
+        Value::Object(map) => {
+            let parts: Vec<String> = map.iter()
+                .filter(|(k, _)| k.as_str() != "$type")
+                .map(|(k, v)| format!("{}:{}", k, value_to_display_quoted(v)))
+                .collect();
+            if parts.is_empty() {
+                map.get("$type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                format!("{{{}}}", parts.join(", "))
+            }
+        }
+        Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(value_to_display_quoted).collect();
+            format!("[{}]", items.join(", "))
+        }
+    }
+}
+
+fn value_to_display_quoted(v: &Value) -> String {
+    match v {
+        Value::String(s) => format!("\"{}\"", s),
+        other => value_to_display(other),
     }
 }
 

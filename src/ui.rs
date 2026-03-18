@@ -64,11 +64,11 @@ pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) {
             egui::Grid::new(format!("detail_{}", record.line_no))
                 .num_columns(2)
                 .striped(true)
-                .spacing([16.0, 5.0])
+                .spacing([16.0, 2.0])
                 .min_col_width(160.0)
                 .show(ui, |ui| {
                     ui.label(mono("@t").color(Color32::from_rgb(140, 170, 255)));
-                    ui.label(body(format!("{} (local)  /  {} (UTC)", record.timestamp_local, record.timestamp_utc)));
+                    ui.label(body(&record.timestamp_local));
                     ui.end_row();
 
                     if let Some(obj) = record.raw.as_object() {
@@ -86,12 +86,14 @@ pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) {
                             };
                             if k == "@x" {
                                 ui.label(small_gray("[see exception above]"));
-                            } else {
+                            } else if val_str.contains('\n') || val_str.len() > 120 {
                                 ui.add(
                                     TextEdit::multiline(&mut val_str.as_str())
                                         .desired_width(f32::INFINITY)
                                         .font(FontId::monospace(13.0)),
                                 );
+                            } else {
+                                ui.label(mono(&val_str));
                             }
                             ui.end_row();
                         }
@@ -106,7 +108,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
         // ── Toolbar ───────────────────────────────────────────────────────────
-        egui::TopBottomPanel::top("toolbar").exact_height(106.0).show(ctx, |ui| {
+        egui::TopBottomPanel::top("toolbar").exact_height(136.0).show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button(RichText::new("  Open file…  ").size(14.0)).clicked() { self.open_file(); }
@@ -154,6 +156,34 @@ impl eframe::App for App {
                     if ui.selectable_label(active, text).clicked() { self.level_filters[idx] = !active; ch = true; }
                 }
                 if ch { self.page = 0; self.apply_filter(); }
+            });
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(small_gray("Property filter:"));
+                let pf_resp = ui.add(
+                    TextEdit::singleline(&mut self.property_filter)
+                        .desired_width(400.0)
+                        .hint_text("e.g. Contains(SourceContext, \"Api\") && Duration > 100")
+                        .font(egui::TextStyle::Body),
+                );
+                if pf_resp.changed() {
+                    self.recompile_property_filter();
+                    self.page = 0;
+                    self.apply_filter();
+                }
+                if !self.property_filter.is_empty() {
+                    if ui.button("Clear").clicked() {
+                        self.property_filter.clear();
+                        self.compiled_pf = None;
+                        self.pf_error = None;
+                        self.page = 0;
+                        self.apply_filter();
+                    }
+                }
+                if let Some(ref err) = self.pf_error {
+                    ui.label(RichText::new(err).color(Color32::from_rgb(255, 100, 100)).size(12.0));
+                }
             });
         });
 
@@ -299,6 +329,7 @@ impl App {
                     .fill(row_bg)
                     .inner_margin(egui::Margin::symmetric(6.0, 5.0))
                     .show(ui, |ui| {
+                        ui.set_min_width(avail_w);
                         ui.horizontal_top(|ui| {
                             ui.add_sized([ts_w, 20.0], egui::Label::new(
                                 mono(&record.timestamp_local).color(Color32::from_gray(180))

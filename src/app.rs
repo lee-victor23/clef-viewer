@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use chrono::Local;
 
+use crate::filter::PropertyFilter;
 use crate::parsing::{build_template_summary, load_file};
 use crate::types::{DateFilter, LevelStats, LogRecord, Tab, TemplateSummary};
 
@@ -24,6 +25,9 @@ pub struct App {
     pub template_summary: Vec<TemplateSummary>,
     pub template_search:  String,
     pub template_filter:  Option<String>,
+    pub property_filter:  String,
+    pub compiled_pf:      Option<PropertyFilter>,
+    pub pf_error:         Option<String>,
 }
 
 impl Default for App {
@@ -36,6 +40,7 @@ impl Default for App {
             stats: LevelStats { counts: [0; 7] },
             page: 0, page_size: 100, tab: Tab::Logs,
             template_summary: vec![], template_search: String::new(), template_filter: None,
+            property_filter: String::new(), compiled_pf: None, pf_error: None,
         }
     }
 }
@@ -78,17 +83,36 @@ impl App {
                 let key = if r.template.is_empty() { r.message.chars().take(80).collect::<String>() } else { r.template.clone() };
                 if &key != k { return false; }
             }
-            if sl.is_empty() { return true; }
-            r.timestamp_local.to_lowercase().contains(&sl)
-            || r.message.to_lowercase().contains(&sl)
-            || r.template.to_lowercase().contains(&sl)
-            || r.raw.to_string().to_lowercase().contains(&sl)
+            if !sl.is_empty() {
+                let hit = r.timestamp_local.to_lowercase().contains(&sl)
+                    || r.message.to_lowercase().contains(&sl)
+                    || r.template.to_lowercase().contains(&sl)
+                    || r.raw.to_string().to_lowercase().contains(&sl);
+                if !hit { return false; }
+            }
+            if let Some(ref pf) = self.compiled_pf {
+                if !pf.matches(&r.raw) { return false; }
+            }
+            true
         }).map(|(i, _)| i).collect();
 
         self.stats = LevelStats::from_filtered(&self.records, &self.filtered);
         self.template_summary = build_template_summary(&self.records, &self.filtered);
         let pages = self.total_pages();
         if pages > 0 && self.page >= pages { self.page = pages - 1; }
+    }
+
+    pub fn recompile_property_filter(&mut self) {
+        let expr = self.property_filter.trim();
+        if expr.is_empty() {
+            self.compiled_pf = None;
+            self.pf_error = None;
+        } else {
+            match PropertyFilter::compile(expr) {
+                Ok(pf) => { self.compiled_pf = Some(pf); self.pf_error = None; }
+                Err(e) => { self.compiled_pf = None; self.pf_error = Some(e.to_string()); }
+            }
+        }
     }
 
     pub fn total_pages(&self) -> usize {
