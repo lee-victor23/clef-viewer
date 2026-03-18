@@ -3,7 +3,41 @@ use egui::{Color32, FontId, RichText, ScrollArea, TextEdit, Vec2};
 use egui_extras::DatePickerButton;
 
 use crate::app::App;
+use crate::parsing::template_segments;
 use crate::types::{DateFilter, Level, LogRecord, Tab, ALL_LEVELS};
+
+// ── Level colours (kept out of types.rs to avoid egui dep there) ─────────────
+
+pub trait LevelColors {
+    fn color(&self) -> Color32;
+    fn bg_color(&self) -> Color32;
+}
+
+impl LevelColors for Level {
+    fn color(&self) -> Color32 {
+        match self {
+            Level::Verbose => Color32::from_rgb(108, 117, 125),
+            Level::Debug   => Color32::from_rgb( 32, 201, 151),
+            Level::Info    => Color32::from_rgb( 23, 162, 184),
+            Level::Warning => Color32::from_rgb(255, 193,   7),
+            Level::Error   => Color32::from_rgb(253, 126,  20),
+            Level::Fatal   => Color32::from_rgb(220,  53,  69),
+            Level::Unknown => Color32::from_rgb(173, 181, 189),
+        }
+    }
+
+    fn bg_color(&self) -> Color32 {
+        match self {
+            Level::Verbose => Color32::from_rgb( 35,  38,  41),
+            Level::Debug   => Color32::from_rgb( 10,  60,  45),
+            Level::Info    => Color32::from_rgb(  8,  52,  60),
+            Level::Warning => Color32::from_rgb( 80,  60,   2),
+            Level::Error   => Color32::from_rgb( 80,  38,   5),
+            Level::Fatal   => Color32::from_rgb( 70,  15,  20),
+            Level::Unknown => Color32::from_rgb( 44,  47,  51),
+        }
+    }
+}
 
 // ── Widget helpers ────────────────────────────────────────────────────────────
 
@@ -41,8 +75,14 @@ pub fn date_filter_ui(ui: &mut egui::Ui, f: &mut DateFilter, id: &str) -> bool {
 
 // ── Inline detail panel ───────────────────────────────────────────────────────
 
-pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) {
+pub enum DetailAction {
+    TemplateFilter(String),
+    PropertyFilter(String),
+}
+
+pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) -> Option<DetailAction> {
     let bg = Color32::from_rgb(28, 30, 38);
+    let mut action: Option<DetailAction> = None;
     egui::Frame::none()
         .fill(bg)
         .inner_margin(egui::Margin::symmetric(16.0, 10.0))
@@ -62,13 +102,14 @@ pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) {
             }
 
             egui::Grid::new(format!("detail_{}", record.line_no))
-                .num_columns(2)
+                .num_columns(3)
                 .striped(true)
                 .spacing([16.0, 2.0])
                 .min_col_width(160.0)
                 .show(ui, |ui| {
                     ui.label(mono("@t").color(Color32::from_rgb(140, 170, 255)));
                     ui.label(body(&record.timestamp_local));
+                    ui.label("");
                     ui.end_row();
 
                     if let Some(obj) = record.raw.as_object() {
@@ -95,11 +136,55 @@ pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) {
                             } else {
                                 ui.label(mono(&val_str));
                             }
+
+                            // Search button
+                            let btn = ui.small_button(RichText::new("Filter").size(11.0));
+                            if btn.clicked() {
+                                action = Some(build_detail_action(k, v));
+                            }
                             ui.end_row();
                         }
                     }
                 });
         });
+    action
+}
+
+fn build_detail_action(key: &str, value: &serde_json::Value) -> DetailAction {
+    match key {
+        "@mt" => {
+            let tmpl = value.as_str().unwrap_or("").to_string();
+            DetailAction::TemplateFilter(tmpl)
+        }
+        "@m" => {
+            let val = value.as_str().unwrap_or("").to_string();
+            let escaped = val.replace('\\', "\\\\").replace('\"', "\\\"");
+            DetailAction::PropertyFilter(format!("Contains(@m, \"{}\")", escaped))
+        }
+        "@x" => {
+            let val = value.as_str().unwrap_or("").to_string();
+            let escaped = val.replace('\\', "\\\\").replace('\"', "\\\"");
+            DetailAction::PropertyFilter(format!("Contains(Exception, \"{}\")", escaped))
+        }
+        _ => {
+            let name = key.to_string();
+            match value {
+                serde_json::Value::String(s) => {
+                    let escaped = s.replace('\\', "\\\\").replace('\"', "\\\"");
+                    DetailAction::PropertyFilter(format!("{} == \"{}\"", name, escaped))
+                }
+                serde_json::Value::Number(n) => {
+                    DetailAction::PropertyFilter(format!("{} == {}", name, n))
+                }
+                serde_json::Value::Bool(b) => {
+                    DetailAction::PropertyFilter(format!("{} == {}", name, b))
+                }
+                _ => {
+                    DetailAction::PropertyFilter(format!("Has(\"{}\")", name))
+                }
+            }
+        }
+    }
 }
 
 // ── Main render loop ──────────────────────────────────────────────────────────
@@ -188,7 +273,7 @@ impl eframe::App for App {
         });
 
         // ── Stats sidebar ─────────────────────────────────────────────────────
-        egui::SidePanel::right("stats").resizable(false).exact_width(230.0).show(ctx, |ui| {
+        egui::SidePanel::right("stats").resizable(true).default_width(280.0).width_range(180.0..=600.0).show(ctx, |ui| {
             ui.add_space(10.0);
             let errs  = self.stats.count(Level::Error);
             let fatal = self.stats.count(Level::Fatal);
@@ -196,13 +281,22 @@ impl eframe::App for App {
             let lbl = if fatal > 0 { "Errors + Fatal" } else { "Errors" };
             let (bg, fg) = if total_ef > 0 { (Color32::from_rgb(180, 50, 50), Color32::WHITE) }
                            else             { (Color32::from_rgb( 35, 110, 55), Color32::WHITE) };
-            egui::Frame::none().fill(bg).rounding(8.0).inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+            let card = egui::Frame::none().fill(bg).rounding(8.0).inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.vertical_centered(|ui| {
                     ui.label(RichText::new(lbl).color(fg).size(13.0));
                     ui.label(RichText::new(total_ef.to_string()).color(fg).size(36.0).strong());
+                    if total_ef > 0 {
+                        ui.label(RichText::new("click to filter").color(fg).size(10.0));
+                    }
                 });
             });
+            if total_ef > 0 && card.response.interact(egui::Sense::click()).clicked() {
+                self.property_filter = "Has(\"Exception\")".into();
+                self.recompile_property_filter();
+                self.page = 0;
+                self.apply_filter();
+            }
 
             ui.add_space(12.0); ui.separator(); ui.add_space(6.0);
             ui.label(RichText::new("Log Levels").strong().size(14.0));
@@ -245,6 +339,36 @@ impl eframe::App for App {
             ui.add_space(8.0); ui.separator(); ui.add_space(4.0);
             ui.label(small_gray(format!("Visible: {}", self.filtered.len())));
             ui.label(small_gray(format!("UTC{} local", chrono::Local::now().offset())));
+
+            ui.add_space(8.0); ui.separator(); ui.add_space(4.0);
+            ui.label(RichText::new("Message Templates").strong().size(14.0));
+            ui.add_space(4.0);
+
+            let summary = self.template_summary.clone();
+            let active_tf = self.template_filter.clone();
+            ScrollArea::vertical().id_salt("sidebar_templates").auto_shrink([false; 2]).show(ui, |ui| {
+                for ts in &summary {
+                    let is_active = active_tf.as_deref() == Some(&ts.template);
+                    let short: String = ts.template.chars().take(40).collect();
+                    let label = if ts.template.len() > 40 {
+                        format!("{} ({})", short, ts.count)
+                    } else {
+                        format!("{} ({})", ts.template, ts.count)
+                    };
+                    let text = RichText::new(label).size(12.0).color(
+                        if is_active { Color32::from_rgb(255, 200, 80) } else { ts.level.color() }
+                    );
+                    if ui.add(egui::Label::new(text).wrap().sense(egui::Sense::click())).clicked() {
+                        if is_active {
+                            self.template_filter = None;
+                        } else {
+                            self.template_filter = Some(ts.template.clone());
+                        }
+                        self.page = 0;
+                        self.apply_filter();
+                    }
+                }
+            });
         });
 
         // ── Central ───────────────────────────────────────────────────────────
@@ -338,10 +462,26 @@ impl App {
                                 ui.set_width(lvl_w);
                                 badge(ui, record.level.label(), record.level.color(), record.level.bg_color());
                             });
-                            let display = if !record.message.is_empty() { &record.message } else { &record.template };
                             ui.allocate_ui(Vec2::new(msg_w, 0.0), |ui| {
                                 ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP).with_main_wrap(true), |ui| {
-                                    ui.label(RichText::new(display).size(14.0).color(Color32::WHITE));
+                                    ui.spacing_mut().item_spacing.x = 0.0;
+                                    if !record.template.is_empty() {
+                                        if let Some(obj) = record.raw.as_object() {
+                                            let segs = template_segments(&record.template, obj);
+                                            for (text, is_dynamic) in &segs {
+                                                let color = if *is_dynamic {
+                                                    Color32::WHITE
+                                                } else {
+                                                    Color32::from_gray(110)
+                                                };
+                                                ui.label(RichText::new(text).size(14.0).color(color));
+                                            }
+                                        } else {
+                                            ui.label(RichText::new(&record.message).size(14.0).color(Color32::WHITE));
+                                        }
+                                    } else {
+                                        ui.label(RichText::new(&record.message).size(14.0).color(Color32::WHITE));
+                                    }
                                 });
                             });
                         });
@@ -353,7 +493,22 @@ impl App {
 
                 if is_expanded {
                     let record = self.records[rec_idx].clone();
-                    show_detail(ui, &record);
+                    if let Some(act) = show_detail(ui, &record) {
+                        match act {
+                            DetailAction::TemplateFilter(tmpl) => {
+                                self.template_filter = Some(tmpl);
+                                self.tab = Tab::Logs;
+                                self.page = 0;
+                                self.apply_filter();
+                            }
+                            DetailAction::PropertyFilter(expr) => {
+                                self.property_filter = expr;
+                                self.recompile_property_filter();
+                                self.page = 0;
+                                self.apply_filter();
+                            }
+                        }
+                    }
                     if ui.horizontal(|ui| ui.button(body("▲  Close")).clicked()).inner {
                         self.expanded = None;
                     }

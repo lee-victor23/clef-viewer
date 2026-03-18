@@ -84,9 +84,10 @@ impl App {
                 if &key != k { return false; }
             }
             if !sl.is_empty() {
-                let hit = r.timestamp_local.to_lowercase().contains(&sl)
-                    || r.message.to_lowercase().contains(&sl)
+                let hit = r.message.to_lowercase().contains(&sl)
                     || r.template.to_lowercase().contains(&sl)
+                    || r.timestamp_local.to_lowercase().contains(&sl)
+                    || r.exception.to_lowercase().contains(&sl)
                     || r.raw.to_string().to_lowercase().contains(&sl);
                 if !hit { return false; }
             }
@@ -116,12 +117,14 @@ impl App {
     }
 
     pub fn total_pages(&self) -> usize {
-        (self.filtered.len() + self.page_size - 1).max(1) / self.page_size
+        if self.filtered.is_empty() { return 1; }
+        (self.filtered.len() + self.page_size - 1) / self.page_size
     }
 
     pub fn page_records(&self) -> &[usize] {
-        let s = self.page * self.page_size;
-        let e = (s + self.page_size).min(self.filtered.len());
+        let len = self.filtered.len();
+        let s = (self.page * self.page_size).min(len);
+        let e = (s + self.page_size).min(len);
         &self.filtered[s..e]
     }
 }

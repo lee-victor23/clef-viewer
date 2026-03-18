@@ -38,7 +38,7 @@ Single-binary desktop GUI app built on [eframe](https://github.com/emilk/egui/tr
 | `src/types.rs` | All data types: `Level`, `DateFilter`, `LogRecord`, `LevelStats`, `TemplateSummary`, `Tab`. No I/O, no egui imports. |
 | `src/parsing.rs` | CLEF/file I/O and data processing: `parse_clef_line`, `load_file`, `render_template`, `build_template_summary`, timestamp helpers. |
 | `src/app.rs` | `App` struct, `Default` impl, and business logic methods: `open_file`, `load`, `apply_filter`, `total_pages`, `page_records`. No direct egui rendering. |
-| `src/ui.rs` | All egui rendering: `impl eframe::App for App`, `show_logs_tab`, `show_templates_tab`, `show_detail`, `date_filter_ui`, widget helpers (`badge`, `body`, `mono`, `small_gray`). |
+| `src/ui.rs` | All egui rendering: `impl eframe::App for App`, `show_logs_tab`, `show_templates_tab`, `show_detail`, `date_filter_ui`, widget helpers (`badge`, `body`, `mono`, `small_gray`), `LevelColors` trait (`color()`, `bg_color()` for `Level`). |
 
 **Rules:**
 - New types go in `types.rs`
@@ -56,7 +56,7 @@ Single-binary desktop GUI app built on [eframe](https://github.com/emilk/egui/tr
 
 **Key types** (all in `src/types.rs`):
 - `LogRecord` — one parsed log line; holds UTC + local timestamps, `Level`, rendered message, raw `serde_json::Value`
-- `Level` — enum with colour/label helpers; mapped from Serilog `@l` field
+- `Level` — enum with label helpers; mapped from Serilog `@l` field. Colour methods are in `ui.rs` via `LevelColors` trait.
 - `App` — all UI + filter state; defined in `src/app.rs`
 - `DateFilter` — date/time range filter state with enable toggle; rendered by `date_filter_ui` in `src/ui.rs`
 - `LevelStats` / `TemplateSummary` — derived aggregates rebuilt on every `apply_filter` call

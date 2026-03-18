@@ -1,5 +1,4 @@
 use chrono::{DateTime, Local, NaiveDate, Timelike, Utc};
-use egui::Color32;
 use serde_json::Value;
 
 // ── Level ─────────────────────────────────────────────────────────────────────
@@ -52,29 +51,6 @@ impl Level {
         }
     }
 
-    pub fn color(&self) -> Color32 {
-        match self {
-            Level::Verbose => Color32::from_rgb(108, 117, 125),
-            Level::Debug   => Color32::from_rgb( 32, 201, 151),
-            Level::Info    => Color32::from_rgb( 23, 162, 184),
-            Level::Warning => Color32::from_rgb(255, 193,   7),
-            Level::Error   => Color32::from_rgb(253, 126,  20),
-            Level::Fatal   => Color32::from_rgb(220,  53,  69),
-            Level::Unknown => Color32::from_rgb(173, 181, 189),
-        }
-    }
-
-    pub fn bg_color(&self) -> Color32 {
-        match self {
-            Level::Verbose => Color32::from_rgb( 35,  38,  41),
-            Level::Debug   => Color32::from_rgb( 10,  60,  45),
-            Level::Info    => Color32::from_rgb(  8,  52,  60),
-            Level::Warning => Color32::from_rgb( 80,  60,   2),
-            Level::Error   => Color32::from_rgb( 80,  38,   5),
-            Level::Fatal   => Color32::from_rgb( 70,  15,  20),
-            Level::Unknown => Color32::from_rgb( 44,  47,  51),
-        }
-    }
 }
 
 pub const ALL_LEVELS: [Level; 6] = [

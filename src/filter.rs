@@ -23,6 +23,16 @@ impl PropertyFilter {
         let mut field_names: HashSet<String> = HashSet::new();
 
         for (k, v) in obj {
+            if k == "@x" {
+                field_names.insert("Exception".into());
+                let _ = context.set_value("Exception".into(), json_to_evalexpr(v));
+                continue;
+            }
+            if k == "@m" {
+                field_names.insert("@m".into());
+                let _ = context.set_value("@m".into(), json_to_evalexpr(v));
+                continue;
+            }
             if k.starts_with('@') {
                 continue;
             }
@@ -55,9 +65,11 @@ impl PropertyFilter {
             Function::new(|arg| str_pair_fn(arg, |h, n| h.ends_with(n))),
         );
 
-        self.tree
-            .eval_boolean_with_context(&context)
-            .unwrap_or(false)
+        match self.tree.eval_with_context(&context) {
+            Ok(Value::Boolean(b)) => b,
+            Ok(_) => false, // non-boolean result treated as no match
+            Err(_) => false,
+        }
     }
 }
 

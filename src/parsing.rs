@@ -68,9 +68,48 @@ pub fn value_to_display(v: &Value) -> String {
 
 fn value_to_display_quoted(v: &Value) -> String {
     match v {
-        Value::String(s) => format!("\"{}\"", s),
+        Value::String(s) => {
+            let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+            format!("\"{}\"", escaped)
+        }
         other => value_to_display(other),
     }
+}
+
+/// Splits a rendered template into segments: (text, is_dynamic).
+/// Fixed template text → false, interpolated values → true.
+pub fn template_segments(template: &str, obj: &serde_json::Map<String, Value>) -> Vec<(String, bool)> {
+    let mut segs = Vec::new();
+    let chars: Vec<char> = template.chars().collect();
+    let mut i = 0;
+    let mut fixed = String::new();
+    while i < chars.len() {
+        match chars[i] {
+            '{' if i + 1 < chars.len() && chars[i + 1] == '{' => { fixed.push('{'); i += 2; }
+            '}' if i + 1 < chars.len() && chars[i + 1] == '}' => { fixed.push('}'); i += 2; }
+            '{' => {
+                let start = i + 1;
+                let mut j = start;
+                while j < chars.len() && chars[j] != '}' { j += 1; }
+                if j < chars.len() {
+                    if !fixed.is_empty() { segs.push((std::mem::take(&mut fixed), false)); }
+                    let token: String = chars[start..j].iter().collect();
+                    let name = token.trim_start_matches('@').split(':').next().unwrap_or(&token);
+                    let val = obj.get(name)
+                        .map(value_to_display)
+                        .unwrap_or_else(|| format!("{{{}}}", token));
+                    segs.push((val, true));
+                    i = j + 1;
+                } else {
+                    fixed.push('{');
+                    i += 1;
+                }
+            }
+            c => { fixed.push(c); i += 1; }
+        }
+    }
+    if !fixed.is_empty() { segs.push((fixed, false)); }
+    segs
 }
 
 // ── Timestamp helpers ─────────────────────────────────────────────────────────
