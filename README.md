@@ -22,7 +22,7 @@ Single executable, no installation required. Built with Rust and [egui](https://
 
 ## Screenshot
 
-<!-- Add a screenshot here: ![screenshot](screenshot.png) -->
+![screenshot](assets/screenshot.png)
 
 ## Download
 
@@ -32,15 +32,16 @@ Grab the latest `clef-viewer.exe` from the [Releases](../../releases) page. No i
 
 Each line in a CLEF file is a JSON object with these standard fields:
 
-| Field | Description |
-|-------|-------------|
-| `@t`  | Timestamp (RFC 3339 or naive) |
+| Field   | Description                                                                            |
+| ------- | -------------------------------------------------------------------------------------- |
+| `@t`  | Timestamp (RFC 3339 or naive)                                                          |
 | `@l`  | Log level (`Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`) |
-| `@mt` | Message template with `{Property}` placeholders |
-| `@m`  | Pre-rendered message (used when `@mt` is absent) |
-| `@x`  | Exception / stack trace |
+| `@mt` | Message template with `{Property}` placeholders                                      |
+| `@m`  | Pre-rendered message (used when `@mt` is absent)                                     |
+| `@x`  | Exception / stack trace                                                                |
 
 Example:
+
 ```json
 {"@t":"2024-03-15T10:30:00.123Z","@l":"Error","@mt":"Failed to process order {OrderId}","OrderId":42,"@x":"System.Exception: ..."}
 ```
