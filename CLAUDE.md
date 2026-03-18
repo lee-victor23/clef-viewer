@@ -53,6 +53,15 @@ Single-binary desktop GUI app built on [eframe](https://github.com/emilk/egui/tr
 | `@m`  | pre-rendered message (preferred over `@mt` when present) |
 | `@x`  | exception string |
 
+**Dependencies:**
+| Crate | Version | Role |
+|-------|---------|------|
+| `eframe` | 0.29 | OS window + render loop host; entry point via `eframe::run_native`; you implement `eframe::App::update` |
+| `egui` | 0.29 | Immediate-mode UI toolkit — no retained widget state; call widget fns (`ui.label`, `ui.button`, etc.) each frame inside `update` |
+| `serde_json` | 1 | Parses each CLEF log line into a dynamic `serde_json::Value`; fields extracted by key lookup |
+| `rfd` | 0.15 | Native OS file-open dialog (Rusty File Dialog); no custom UI needed for file picking |
+| `chrono` | 0.4 | Parses `@t` timestamps (RFC3339 / naive) into `DateTime<Utc>`; converts to local time for display; drives date-range filter |
+
 **UI layout:**
 - Top panel: toolbar (Open, tab switcher, search, date range, level toggles)
 - Right panel: stats sidebar (error count, level bar chart, level table)

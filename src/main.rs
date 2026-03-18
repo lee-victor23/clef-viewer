@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use eframe::egui;
 use egui::{Color32, FontId, RichText, ScrollArea, TextEdit, Vec2};
+use egui_extras::DatePickerButton;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -130,88 +131,41 @@ const ALL_LEVELS: [Level; 6] = [
 // ── DateTime picker ───────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
-struct DateTimePicker {
-    year: i32, month: u32, day: u32,
-    hour: u32, minute: u32, second: u32,
+struct DateFilter {
+    date:    NaiveDate,
     enabled: bool,
 }
 
-impl DateTimePicker {
+impl DateFilter {
     fn empty() -> Self {
-        let n = Local::now();
-        Self { year: n.year(), month: n.month(), day: n.day(),
-               hour: 0, minute: 0, second: 0, enabled: false }
+        Self { date: Local::now().date_naive(), enabled: false }
     }
     fn from_local_dt(dt: DateTime<Local>) -> Self {
-        Self { year: dt.year(), month: dt.month(), day: dt.day(),
-               hour: dt.hour(), minute: dt.minute(), second: dt.second(),
-               enabled: false }
+        Self { date: dt.date_naive(), enabled: false }
     }
     fn to_utc_start(&self) -> Option<DateTime<Utc>> {
         if !self.enabled { return None; }
-        NaiveDateTime::new(
-            chrono::NaiveDate::from_ymd_opt(self.year, self.month, self.day)?,
-            chrono::NaiveTime::from_hms_opt(0, 0, 0)?,
-        ).and_local_timezone(Local).single().map(|l| l.with_timezone(&Utc))
+        self.date.and_hms_opt(0, 0, 0)
+            .and_then(|ndt| ndt.and_local_timezone(Local).single())
+            .map(|l| l.with_timezone(&Utc))
     }
-
     fn to_utc_end(&self) -> Option<DateTime<Utc>> {
         if !self.enabled { return None; }
-        NaiveDateTime::new(
-            chrono::NaiveDate::from_ymd_opt(self.year, self.month, self.day)?,
-            chrono::NaiveTime::from_hms_opt(23, 59, 59)?,
-        ).and_local_timezone(Local).single().map(|l| l.with_timezone(&Utc))
-    }
-    fn clamp(&mut self) {
-        self.month = self.month.clamp(1, 12);
-        self.day   = self.day.clamp(1, days_in_month(self.year, self.month));
-        self.hour   = self.hour.min(23);
-        self.minute = self.minute.min(59);
-        self.second = self.second.min(59);
+        self.date.and_hms_opt(23, 59, 59)
+            .and_then(|ndt| ndt.and_local_timezone(Local).single())
+            .map(|l| l.with_timezone(&Utc))
     }
 }
 
-fn days_in_month(y: i32, m: u32) -> u32 {
-    match m {
-        1|3|5|7|8|10|12 => 31, 4|6|9|11 => 30,
-        2 => if (y%4==0 && y%100!=0) || y%400==0 { 29 } else { 28 },
-        _ => 30,
-    }
-}
-
-fn datetime_picker_ui(ui: &mut egui::Ui, p: &mut DateTimePicker, id: &str) -> bool {
+fn date_filter_ui(ui: &mut egui::Ui, f: &mut DateFilter, id: &str) -> bool {
     let mut ch = false;
     ui.horizontal(|ui| {
-        if ui.checkbox(&mut p.enabled, "").changed() { ch = true; }
-        ui.add_enabled_ui(p.enabled, |ui| {
-            ch |= spin_i(ui, &mut p.year, 2000, 2099, 4, id, "y");
-            sep(ui); let mut m = p.month as i32;
-            if spin_i(ui, &mut m, 1, 12, 2, id, "mo") { p.month = m as u32; ch = true; }
-            sep(ui); let mx = days_in_month(p.year, p.month) as i32; let mut d = p.day as i32;
-            if spin_i(ui, &mut d, 1, mx, 2, id, "d") { p.day = d as u32; ch = true; }
+        if ui.checkbox(&mut f.enabled, "").changed() { ch = true; }
+        ui.add_enabled_ui(f.enabled, |ui| {
+            if ui.add(DatePickerButton::new(&mut f.date).id_salt(id)).changed() {
+                ch = true;
+            }
         });
-    });
-    if ch { p.clamp(); }
-    ch
-}
-
-fn sep(ui: &mut egui::Ui) { ui.label(RichText::new("-").color(Color32::from_gray(110))); }
-
-fn spin_i(ui: &mut egui::Ui, v: &mut i32, min: i32, max: i32, digits: usize, pfx: &str, f: &str) -> bool {
-    let mut ch = false;
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        if ui.small_button("▲").clicked() { *v = if *v >= max { min } else { *v + 1 }; ch = true; }
-        let mut s = format!("{:0>width$}", v, width = digits);
-        if ui.add(TextEdit::singleline(&mut s)
-            .id(egui::Id::new(format!("{pfx}_{f}")))
-            .desired_width(digits as f32 * 9.5 + 4.0)
-            .font(egui::TextStyle::Monospace))
-            .changed()
-        {
-            if let Ok(n) = s.trim().parse::<i32>() { *v = n.clamp(min, max); ch = true; }
-        }
-        if ui.small_button("▼").clicked() { *v = if *v <= min { max } else { *v - 1 }; ch = true; }
     });
     ch
 }
@@ -323,8 +277,8 @@ struct App {
     filtered:         Vec<usize>,
     search:           String,
     level_filters:    [bool; 7],
-    time_from:        DateTimePicker,
-    time_to:          DateTimePicker,
+    time_from:        DateFilter,
+    time_to:          DateFilter,
     expanded:         Option<usize>,   // index into records; detail shown inline
     file_path:        Option<PathBuf>,
     status:           String,
@@ -342,7 +296,7 @@ impl Default for App {
         Self {
             records: vec![], filtered: vec![], search: String::new(),
             level_filters: [true; 7],
-            time_from: DateTimePicker::empty(), time_to: DateTimePicker::empty(),
+            time_from: DateFilter::empty(), time_to: DateFilter::empty(),
             expanded: None, file_path: None, status: "No file loaded.".into(),
             stats: LevelStats { counts: [0; 7] },
             page: 0, page_size: 100, tab: Tab::Logs,
@@ -364,10 +318,10 @@ impl App {
         self.records = load_file(&path);
         self.expanded = None; self.page = 0; self.template_filter = None;
         if let Some(dt) = self.records.iter().find_map(|r| r.dt_utc) {
-            self.time_from = DateTimePicker::from_local_dt(dt.with_timezone(&Local));
+            self.time_from = DateFilter::from_local_dt(dt.with_timezone(&Local));
         }
         if let Some(dt) = self.records.iter().rev().find_map(|r| r.dt_utc) {
-            self.time_to = DateTimePicker::from_local_dt(dt.with_timezone(&Local));
+            self.time_to = DateFilter::from_local_dt(dt.with_timezone(&Local));
         }
         self.file_path = Some(path);
         self.status = format!("Loaded {} records", self.records.len());
@@ -521,10 +475,10 @@ impl eframe::App for App {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(small_gray("From (local):"));
-                let c1 = datetime_picker_ui(ui, &mut self.time_from, "tf");
+                let c1 = date_filter_ui(ui, &mut self.time_from, "tf");
                 ui.add_space(8.0);
                 ui.label(small_gray("To (local):"));
-                let c2 = datetime_picker_ui(ui, &mut self.time_to, "tt");
+                let c2 = date_filter_ui(ui, &mut self.time_to, "tt");
                 if c1 || c2 { self.page = 0; self.apply_filter(); }
 
                 ui.add_space(12.0); ui.separator(); ui.add_space(4.0);
