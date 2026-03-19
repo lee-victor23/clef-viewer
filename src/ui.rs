@@ -59,7 +59,7 @@ impl RowColors {
         if v.dark_mode {
             Self {
                 even:      Color32::from_rgb(30, 30, 34),
-                odd:       Color32::from_rgb(16, 16, 20),
+                odd:       Color32::from_rgb(38, 38, 44),
                 expanded:  Color32::from_rgb(30, 45, 80),
                 active:    Color32::from_rgb(35, 55, 95),
                 selected:  Color32::from_rgb(25, 55, 35),
@@ -72,7 +72,7 @@ impl RowColors {
         } else {
             Self {
                 even:      Color32::from_rgb(248, 248, 250),
-                odd:       Color32::from_rgb(228, 228, 234),
+                odd:       Color32::from_rgb(218, 218, 226),
                 expanded:  Color32::from_rgb(200, 215, 245),
                 active:    Color32::from_rgb(210, 225, 250),
                 selected:  Color32::from_rgb(210, 240, 218),
@@ -92,6 +92,16 @@ pub fn badge(ui: &mut egui::Ui, text: &str, fg: Color32, bg: Color32) {
     egui::Frame::none().fill(bg).rounding(4.0)
         .inner_margin(egui::Margin::symmetric(7.0, 3.0))
         .show(ui, |ui| { ui.label(RichText::new(text).color(fg).strong().size(13.0)); });
+}
+
+fn truncate_display(s: &str, max: usize) -> String {
+    if s.len() > max {
+        let mut t: String = s.chars().take(max).collect();
+        t.push_str("…");
+        t
+    } else {
+        s.to_string()
+    }
 }
 
 pub fn body(text: impl Into<String>) -> RichText { RichText::new(text).size(14.0) }
@@ -134,6 +144,7 @@ pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) -> Option<DetailAction
         .fill(rc.detail_bg)
         .inner_margin(egui::Margin::symmetric(16.0, 10.0))
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             if !record.exception.is_empty() {
                 egui::Frame::none()
                     .fill(rc.exc_bg)
@@ -148,51 +159,52 @@ pub fn show_detail(ui: &mut egui::Ui, record: &LogRecord) -> Option<DetailAction
                 ui.add_space(8.0);
             }
 
-            egui::Grid::new(format!("detail_{}", record.line_no))
-                .num_columns(3)
-                .striped(true)
-                .spacing([16.0, 2.0])
-                .min_col_width(160.0)
-                .show(ui, |ui| {
-                    ui.label(mono("@t").color(Color32::from_rgb(140, 170, 255)));
-                    ui.label(body(&record.timestamp_local));
-                    ui.label("");
-                    ui.end_row();
+            let detail_w = ui.available_width();
+            let key_w = 160.0f32;
+            let btn_w = 50.0f32;
+            let val_w = (detail_w - key_w - btn_w - 32.0).max(100.0);
 
-                    if let Some(obj) = record.raw.as_object() {
-                        for (k, v) in obj {
-                            if k == "@t" || k == "@l" { continue; }
-                            let key_color = if k.starts_with('@') {
-                                Color32::from_rgb(140, 170, 255)
-                            } else {
-                                Color32::from_rgb(100, 210, 180)
-                            };
-                            ui.label(mono(k).color(key_color));
-                            let val_str = match v {
-                                serde_json::Value::String(s) => s.clone(),
-                                other => other.to_string(),
-                            };
-                            if k == "@x" {
-                                ui.label(small_gray("[see exception above]"));
-                            } else if val_str.contains('\n') || val_str.len() > 120 {
-                                ui.add(
-                                    TextEdit::multiline(&mut val_str.as_str())
-                                        .desired_width(f32::INFINITY)
-                                        .font(FontId::monospace(13.0)),
-                                );
-                            } else {
-                                ui.label(mono(&val_str));
-                            }
+            // @t row
+            ui.horizontal(|ui| {
+                ui.add_sized([key_w, 18.0], egui::Label::new(mono("@t").color(Color32::from_rgb(140, 170, 255))));
+                ui.label(body(&record.timestamp_local));
+            });
+            ui.add_space(2.0);
 
-                            // Search button
-                            let btn = ui.small_button(RichText::new("Filter").size(11.0));
-                            if btn.clicked() {
-                                action = Some(build_detail_action(k, v));
-                            }
-                            ui.end_row();
+            if let Some(obj) = record.raw.as_object() {
+                for (k, v) in obj {
+                    if k == "@t" || k == "@l" { continue; }
+                    let key_color = if k.starts_with('@') {
+                        Color32::from_rgb(140, 170, 255)
+                    } else {
+                        Color32::from_rgb(100, 210, 180)
+                    };
+                    let val_str = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    ui.horizontal_top(|ui| {
+                        ui.add_sized([key_w, 18.0], egui::Label::new(mono(k).color(key_color)));
+                        if k == "@x" {
+                            ui.add_sized([val_w, 18.0], egui::Label::new(small_gray("[see exception above]")));
+                        } else if val_str.contains('\n') || val_str.len() > 120 {
+                            ui.add(
+                                TextEdit::multiline(&mut val_str.as_str())
+                                    .desired_width(val_w)
+                                    .font(FontId::monospace(13.0)),
+                            );
+                        } else {
+                            ui.add_sized([val_w, 18.0], egui::Label::new(mono(&val_str)).wrap());
                         }
-                    }
-                });
+
+                        let btn = ui.small_button(RichText::new("Filter").size(11.0));
+                        if btn.clicked() {
+                            action = Some(build_detail_action(k, v));
+                        }
+                    });
+                    ui.add_space(2.0);
+                }
+            }
         });
     action
 }
@@ -683,13 +695,22 @@ impl App {
                                                 } else {
                                                     rc.text_dim
                                                 };
-                                                ui.label(RichText::new(text).size(14.0).color(color));
+                                                let display: String = if text.len() > 200 {
+                                                    let mut t: String = text.chars().take(200).collect();
+                                                    t.push_str("…");
+                                                    t
+                                                } else {
+                                                    text.clone()
+                                                };
+                                                ui.label(RichText::new(display).size(14.0).color(color));
                                             }
                                         } else {
-                                            ui.label(RichText::new(&record.message).size(14.0).color(rc.text));
+                                            let msg = truncate_display(&record.message, 500);
+                                            ui.label(RichText::new(msg).size(14.0).color(rc.text));
                                         }
                                     } else {
-                                        ui.label(RichText::new(&record.message).size(14.0).color(rc.text));
+                                        let msg = truncate_display(&record.message, 500);
+                                        ui.label(RichText::new(msg).size(14.0).color(rc.text));
                                     }
                                 });
                             });
